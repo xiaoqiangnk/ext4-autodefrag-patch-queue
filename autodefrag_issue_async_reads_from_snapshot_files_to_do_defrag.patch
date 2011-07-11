@@ -4,10 +4,10 @@ If the goal blocks of a file to be written belongs to a snapshot files,
 async reads on the goal blocks from snapshot files is issued to defrag
 the file.
 
-diff --git a/fs/ext4/ext4_auto_defrag.c b/fs/ext4/ext4_auto_defrag.c
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
 index 912099a..8052d8d 100644
---- a/fs/ext4/ext4_auto_defrag.c
-+++ b/fs/ext4/ext4_auto_defrag.c
+--- a/fs/ext4/auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
 @@ -14,14 +14,31 @@
   */
  
@@ -462,10 +462,10 @@ index 912099a..8052d8d 100644
 +	return err;
 +}
  #endif
-diff --git a/fs/ext4/ext4_auto_defrag.h b/fs/ext4/ext4_auto_defrag.h
+diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
 index d3f4738..11585ad 100644
---- a/fs/ext4/ext4_auto_defrag.h
-+++ b/fs/ext4/ext4_auto_defrag.h
+--- a/fs/ext4/auto_defrag.h
++++ b/fs/ext4/auto_defrag.h
 @@ -18,4 +18,7 @@ extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
  				  struct ext4_extent *ex,
  				  struct ext4_extent *newex);

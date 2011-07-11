@@ -49,15 +49,15 @@ index 9ba5a38..accf7a2 100644
  
  /*
   * Add new method to test wether block and inode bitmaps are properly
-diff --git a/fs/ext4/ext4_auto_defrag.c b/fs/ext4/ext4_auto_defrag.c
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
 new file mode 100644
 index 0000000..912099a
 --- /dev/null
-+++ b/fs/ext4/ext4_auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
 @@ -0,0 +1,95 @@
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +/*
-+ * linux/fs/ext4/ext4_auto_defrag.c
++ * linux/fs/ext4/auto_defrag.c
 + *
 + * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>, 2011
 + *
@@ -150,15 +150,15 @@ index 0000000..912099a
 +	return err;
 +}
 +#endif
-diff --git a/fs/ext4/ext4_auto_defrag.h b/fs/ext4/ext4_auto_defrag.h
+diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
 new file mode 100644
 index 0000000..d3f4738
 --- /dev/null
-+++ b/fs/ext4/ext4_auto_defrag.h
++++ b/fs/ext4/auto_defrag.h
 @@ -0,0 +1,21 @@
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +/*
-+ * linux/fs/ext4/ext4_auto_defrag.h
++ * linux/fs/ext4/auto_defrag.h
 + *
 + * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>, 2011
 + *
