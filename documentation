@@ -1,0 +1,28 @@
+                 AUTO-DEFRAG Documentation
+
+auto-defrag aims to defrag files in ext4 automatically, that means
+users does not need to issue commands to do defrag.  Currently, there
+is a tool called online-defrag can defrag files in ext4, online-defrag
+need users to issue defrag manually.
+
+To defrag a file, we need to reallocate blocks for the file and write
+data of the file into new blocks and free orginal blocks.
+
+Currently, auto-defrag is designed on top of ext4-snapshots and it works
+as follows.  If a file A is rewritten and its goal blocks is taken by
+snapshot files, then the blocks of the snapshot files are reallocated and
+original blocks are freed and the blocks of the file A are reallocated as
+well, and freed blocks are used.
+
+There are 3 parts in auto-defrag implementation:
+  -- trigger defrag on a file
+     if goal blocks are taken by snapshot files, defrag on the file is
+     triggered.
+
+  -- async reads on snapshot files
+     if goal blocks of a file are taken by snapshot files, async reads
+     on snapshot files are issued.
+
+  -- defrag a file
+     if a defrag is triggered on a file, then we need to reallocate blocks
+     for the file if possible.
