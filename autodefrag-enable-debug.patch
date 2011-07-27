@@ -1,0 +1,48 @@
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index accf7a2..a0ce258 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -88,6 +88,10 @@
+ #define CONFIG_EXT4_FS_SNAPSHOT_
+ #endif
+ 
++#ifndef CONFIG_EXT4_FS_AUTO_DEFRAG
++#define CONFIG_EXT4_FS_AUTO_DEFRAG
++#endif
++
+ /*
+  * The fourth extended filesystem constants/structures
+  */
+diff --git a/fs/ext4/mballoc.c b/fs/ext4/mballoc.c
+index e71ef6c..a1d2ace 100644
+--- a/fs/ext4/mballoc.c
++++ b/fs/ext4/mballoc.c
+@@ -26,6 +26,7 @@
+ #include <linux/slab.h>
+ #include <trace/events/ext4.h>
+ #include "snapshot.h"
++#include "auto_defrag.h"
+ 
+ /*
+  * MUSTDO:
+@@ -2681,6 +2682,10 @@ static void __init ext4_create_debugfs_entry(void)
+ 	if (debugfs_dir)
+ 		ext4_snapshot_create_debugfs_entry(debugfs_dir);
+ #endif
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (debugfs_dir)
++		ext4_autodefrag_create_debugfs_entry(debugfs_dir);
++#endif
+ }
+ 
+ static void ext4_remove_debugfs_entry(void)
+@@ -2688,6 +2693,9 @@ static void ext4_remove_debugfs_entry(void)
+ #ifdef CONFIG_EXT4_FS_SNAPSHOT_DEBUG
+ 	ext4_snapshot_remove_debugfs_entry();
+ #endif
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	ext4_autodefrag_remove_debugfs_entry();
++#endif
+ 	debugfs_remove(debugfs_debug);
+ 	debugfs_remove(debugfs_dir);
+ }

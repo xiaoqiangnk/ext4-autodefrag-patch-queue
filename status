@@ -1,2 +1,8 @@
 autodefrag_add_defrag_support.patch
-autodefrag_issue_async_reads_from_snapshot_files_to_do_defrag.patch
+autodefrag_async_reads_from_snapshot_files.patch
+enable-ext4_mb_new_blocks-to-prealloc-only.patch
+autodegrag-issue-async-reads.patch
+reallcoate-blocks-for-snapshot-file.patch
+remap-blocks-in-read-call-backs.patch
+autodefrag-add-debug-support.patch
+autodefrag-enable-debug.patch

@@ -1,0 +1,81 @@
+ext4: adds debug support for autodefrag
+
+This patch adds debug support for autodefrag.
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
+index 21cf827..47bec86 100644
+--- a/fs/ext4/auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
+@@ -31,6 +31,11 @@
+  */
+ 
+ /*
++ * Debug switch for autodefrag.
++ */
++u8 autodefrag_enable_debug = 1;
++
++/*
+  * This function tries to defrag a file by replacing the physical blocks of @ex
+  * with the physical blocks of @newex.
+  */
+@@ -552,4 +557,32 @@ int ext4_auto_defrag_async_read_blocks(struct inode *inode,
+ 
+ 	return err;
+ }
++
++#ifdef CONFIG_EXT4_DEBUG
++static struct dentry autodefrag_debug;
++
++/*
++ * ext4_autodefrag_create_debugfs_entry - register ext4 autodefrag debug hooks
++ * Void function doesn't return error if debug hooks are not registered.
++ */
++void __init ext4_autodefrag_create_debugfs_entry(struct dentry *debugfs_dir)
++{
++	int i;
++
++	BUG_ON(!debugfs_dir);
++	autodefrag_debug = debugfs_create_u8("autodefrag-debug", S_IRUGO|S_IWUSR,
++					   debugfs_dir,
++					   &autodefrag_enable_debug);
++}
++
++/*
++ * ext4_snapshot_remove_debugfs_entry - unregister ext4 snapshot debug hooks
++ * checks if the hooks have been registered before unregistering them.
++ */
++void __exit ext4_autodefrag_remove_debugfs_entry(void)
++{
++	if (autodefrag_debug)
++		debugfs_remove(autodefrag_debug);
++}
++
+ #endif
+diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
+index ab8c6af..c712f3d 100644
+--- a/fs/ext4/auto_defrag.h
++++ b/fs/ext4/auto_defrag.h
+@@ -21,4 +21,24 @@ extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
+ int ext4_auto_defrag_async_read_blocks(struct inode *inode,
+ 				       ext4_fsblk_t goal,
+ 				       ext4_fsblk_t len);
++
++extern u8 autodefrag_enable_debug;
++
++#ifdef CONFIG_EXT4_DEBUG
++#define autodefrag_debug(f, a...)					\
++	do {								\
++		if (!autodefrag_enable_debug)				\
++			break;						\
++		printk(KERN_DEBUG "EXT4-fs AUTODEFRAG DEBUG (%s, %d): " \
++		       "%s:", __FILE__, __LINE__, __func__);		\
++		printk(KERN_DEBUG f, ## a);				\
++	} while (0)
++
++extern void ext4_autodefrag_create_debugfs_entry(struct dentry *debugfs_dir);
++extern void ext4_autodefrag_remove_debugfs_entry(void);
++#else
++#define autodefrag_debug(f, a...)
++#define ext4_autodefrag_create_debugfs_entry(d)
++#define ext4_autodefrag_remove_debugfs_entry()
++#endif
+ #endif

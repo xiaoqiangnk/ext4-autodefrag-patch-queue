@@ -1,57 +1,22 @@
-Add defrag support.
+ext4: add defrag support
 
-Data blocks marked with BH_Auto_Defrag are reallocated to defrag the files
-containning the blocks.
+This patch adds support for defragging a extent file by:
+
+  -- adding BH_Auto_Defrag
+     data blocks marked with BH_Auto_Defrag are reallocated to defrag
+     the file containning the blocks.
+
+  -- adding EXT4_GET_BLOCKS_AUTO_DEFRAG
+     EXT4_GET_BLOCKS_AUTO_DEFRAG are passed to ext4_map_blocks() to indicate
+     reallocating blocks for defraging.
+
+  -- adding ext4_try_to_defrag()
+     ext4_try_to_defrag() tries to defrag a file by reallocating blocks.
 
 Signed-off-by: Yongqiang Yang <xiaoqiangnk@gmail.com>
-
-diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 9ba5a38..accf7a2 100644
---- a/fs/ext4/ext4.h
-+++ b/fs/ext4/ext4.h
-@@ -82,6 +82,7 @@
- #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP
- #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP_SHRINK
- #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP_MERGE
-+#define CONFIG_EXT4_FS_AUTO_DEFRAG
- #endif
- #ifndef CONFIG_EXT4_FS_SNAPSHOT_
- #define CONFIG_EXT4_FS_SNAPSHOT_
-@@ -655,7 +656,10 @@ struct ext4_new_group_data {
- 	/* bypass journal and sync allocated indirect blocks directly to disk */
- #define EXT4_GET_BLOCKS_SYNC			0x800
- #endif
--
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	/* allocate blocks to defrag a file */
-+#define EXT4_GET_BLOCKS_AUTO_DEFRAG		0x1000
-+#endif
- /*
-  * Flags used by ext4_free_blocks
-  */
-@@ -2438,6 +2442,9 @@ enum ext4_state_bits {
- 				 */
- #endif
- #endif
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	BH_Auto_Defrag,	/* Data block need to be defragged */
-+#endif
- };
- 
- BUFFER_FNS(Uninit, uninit)
-@@ -2449,6 +2456,9 @@ BUFFER_FNS(Partial_Write, partial_write)
- BUFFER_FNS(Tracked_Read, tracked_read)
- #endif
- #endif
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+BUFFER_FNS(Auto_Defrag, auto_defrag)
-+#endif
- 
- /*
-  * Add new method to test wether block and inode bitmaps are properly
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
 new file mode 100644
-index 0000000..912099a
+index 0000000..3446ed4
 --- /dev/null
 +++ b/fs/ext4/auto_defrag.c
 @@ -0,0 +1,95 @@
@@ -152,11 +117,10 @@ index 0000000..912099a
 +#endif
 diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
 new file mode 100644
-index 0000000..d3f4738
+index 0000000..2e9f1d0
 --- /dev/null
 +++ b/fs/ext4/auto_defrag.h
-@@ -0,0 +1,21 @@
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
+@@ -0,0 +1,42 @@
 +/*
 + * linux/fs/ext4/auto_defrag.h
 + *
@@ -170,22 +134,12 @@ index 0000000..d3f4738
 + *
 + * Ext4 auto-defrag extensions.
 + */
-+extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
-+				  struct ext4_ext_path *path,
-+				  struct ext4_map_blocks *map,
-+				  struct ext4_extent *ex,
-+				  struct ext4_extent *newex);
 +
-+#endif
-diff --git a/fs/ext4/ext4_jbd2.h b/fs/ext4/ext4_jbd2.h
-index f52e93a..b88987a 100644
---- a/fs/ext4/ext4_jbd2.h
-+++ b/fs/ext4/ext4_jbd2.h
-@@ -696,4 +696,21 @@ static inline int ext4_snapshot_should_move_data(struct inode *inode)
- 
- #endif
- #endif
++#include "ext4.h"
++#include "snapshot.h"
++
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++
 +/*
 + * check if @inode data blocks should be defragged.
 + */
@@ -201,36 +155,70 @@ index f52e93a..b88987a 100644
 +		return 0;
 +	return 1;
 +}
++
++extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
++				  struct ext4_ext_path *path,
++				  struct ext4_map_blocks *map,
++				  struct ext4_extent *ex,
++				  struct ext4_extent *newex);
++
 +#endif
- #endif	/* _EXT4_JBD2_H */
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 9ba5a38..accf7a2 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -82,6 +82,7 @@
+ #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP
+ #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP_SHRINK
+ #define CONFIG_EXT4_FS_SNAPSHOT_CLEANUP_MERGE
++#define CONFIG_EXT4_FS_AUTO_DEFRAG
+ #endif
+ #ifndef CONFIG_EXT4_FS_SNAPSHOT_
+ #define CONFIG_EXT4_FS_SNAPSHOT_
+@@ -655,7 +656,10 @@ struct ext4_new_group_data {
+ 	/* bypass journal and sync allocated indirect blocks directly to disk */
+ #define EXT4_GET_BLOCKS_SYNC			0x800
+ #endif
+-
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	/* allocate blocks to defrag a file */
++#define EXT4_GET_BLOCKS_AUTO_DEFRAG		0x1000
++#endif
+ /*
+  * Flags used by ext4_free_blocks
+  */
+@@ -2438,6 +2442,9 @@ enum ext4_state_bits {
+ 				 */
+ #endif
+ #endif
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	BH_Auto_Defrag,	/* Data block need to be defragged */
++#endif
+ };
+ 
+ BUFFER_FNS(Uninit, uninit)
+@@ -2449,6 +2456,9 @@ BUFFER_FNS(Partial_Write, partial_write)
+ BUFFER_FNS(Tracked_Read, tracked_read)
+ #endif
+ #endif
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++BUFFER_FNS(Auto_Defrag, auto_defrag)
++#endif
+ 
+ /*
+  * Add new method to test wether block and inode bitmaps are properly
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index 8ab41ea..fcd6af3 100644
+index 8ab41ea..7ed9c04 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
 @@ -46,6 +46,7 @@
  #include "ext4_jbd2.h"
  #include "ext4_extents.h"
  #include "snapshot.h"
-+#include "ext4_auto_defrag.h"
++#include "auto_defrag.h"
  
  static int ext4_ext_truncate_extend_restart(handle_t *handle,
  					    struct inode *inode,
-@@ -3178,6 +3179,7 @@ static int ext4_ext_move_to_snapshot(handle_t *handle, struct inode *inode,
- 	} else {
- 		/*
- 		 * Move to snapshot successfully.
-+		 * TODO merge extent after finishing MOW
- 		 */
- 		err = ext4_split_extent(handle, inode, path, map, 0,
- 					EXT4_GET_BLOCKS_PRE_IO);
-@@ -3202,7 +3204,6 @@ static int ext4_ext_move_to_snapshot(handle_t *handle, struct inode *inode,
- 		if (!err) {
- 			/* splice new blocks to the inode*/
- 			ext4_ext_store_pblock(ex, newblock);
--			ext4_ext_try_to_merge(inode, path, ex);
- 			err = ext4_ext_dirty(handle, inode,
- 					     path + depth);
- 		}
 @@ -3212,6 +3213,7 @@ out:
  	return err;
  }
@@ -239,26 +227,26 @@ index 8ab41ea..fcd6af3 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3397,6 +3399,13 @@ found:
+@@ -3397,6 +3399,10 @@ found:
  		ex = path[depth].p_ext;
  	}
  #endif
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	ar.flags = 0;
-+	if (newblock && (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)) {
-+		ar.flags |= EXT4_MB_HINT_GOAL_ONLY;
++	if (newblock && (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
 +		oldblock = newblock;
-+	}
 +#endif
  	/*
  	 * Okay, we need to do block allocation.
  	 */
-@@ -3454,7 +3463,11 @@ found:
+@@ -3454,7 +3460,14 @@ found:
  	ar.logical = map->m_lblk;
  	ar.len = allocated;
  	if (S_ISREG(inode->i_mode))
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+		ar.flags |= EXT4_MB_HINT_DATA;
++		if (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)
++			ar.flags = EXT4_MB_HINT_DATA | EXT4_MB_HINT_GOAL_ONLY;
++		else
++			ar.flags = EXT4_MB_HINT_DATA;
 +#else
  		ar.flags = EXT4_MB_HINT_DATA;
 +#endif
@@ -287,20 +275,58 @@ index 8ab41ea..fcd6af3 100644
  		err = ext4_ext_insert_extent(handle, inode,
  					     path, &newex, flags);
 diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index 0ede8cc..33d347c 100644
+index 0ede8cc..49bf959 100644
 --- a/fs/ext4/inode.c
 +++ b/fs/ext4/inode.c
-@@ -2067,6 +2067,35 @@ static void ext4_snapshot_write_begin(struct inode *inode,
+@@ -1593,6 +1593,11 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_EXTENT
+ 		retval = ext4_ext_map_blocks(handle, inode, map,
+ 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++		retval = ext4_ext_map_blocks(handle, inode, map,
++				flags & (EXT4_GET_BLOCKS_MOVE_ON_WRITE |
++					 EXT4_GET_BLOCKS_AUTO_DEFRAG));
++#endif
+ #else
+ 		retval = ext4_ext_map_blocks(handle, inode, map, 0);
+ #endif
+@@ -1600,6 +1605,11 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
+ 		retval = ext4_ind_map_blocks(handle, inode, map,
+ 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++		retval = ext4_ind_map_blocks(handle, inode, map,
++				flags & (EXT4_GET_BLOCKS_MOVE_ON_WRITE |
++					 EXT4_GET_BLOCKS_AUTO_DEFRAG));
++#endif
+ #else
+ 		retval = ext4_ind_map_blocks(handle, inode, map, 0);
+ #endif
+@@ -1829,6 +1839,10 @@ int ext4_get_block_mow(struct inode *inode, sector_t iblock,
+ 
+ 	if (ext4_snapshot_should_move_data(inode))
+ 		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (ext4_should_auto_defrag(inode))
++		flags |= EXT4_GET_BLOCKS_AUTO_DEFRAG
++#endif
+ 	return _ext4_get_block(inode, iblock, bh, flags);
+ }
+ 
+@@ -2067,6 +2081,36 @@ static void ext4_snapshot_write_begin(struct inode *inode,
  }
  
  #endif
 +
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +/*
-+ * This function is called by ext4_write_begin() and ext4_da_write_begin()
-+ * to let buffers can be defragged.
++ * ext4_autodefrag_write_begin() cleared BH_Mapped flag on buffers of a
++ * page, so that ext4_ext_map_blocks will be called, defrag, thus, can be
++ * triggered.
++ *
++ * This function is called by ext4_write_begin() and ext4_da_write_begin().
 + */
-+static void ext4_auto_defrag_write_begin(struct inode *inode, struct page *page)
++static void ext4_autodefrag_write_begin(struct inode *inode, struct page *page)
 +{
 +	struct buffer_head *bh, *head;
 +	if (!ext4_should_auto_defrag(inode))
@@ -315,10 +341,8 @@ index 0ede8cc..33d347c 100644
 +		 * make sure that get_block() is called even if the buffer is
 +		 * mapped, but not if it is already marked with BH_Auto_defrag.
 +		 */
-+		if (!buffer_delay(bh) && !buffer_auto_defrag(bh) &&
-+		    buffer_mapped(bh))
-+			/* explicitly request defrag */
-+			set_buffer_auto_defrag(bh);
++		if (!buffer_auto_defrag(bh) && buffer_mapped(bh))
++			clear_buffer_mapped(bh);
 +		bh = bh->b_this_page;
 +	} while (bh != head);
 +}
@@ -326,18 +350,18 @@ index 0ede8cc..33d347c 100644
  static int ext4_get_block_write(struct inode *inode, sector_t iblock,
  		   struct buffer_head *bh_result, int create);
  static int ext4_write_begin(struct file *file, struct address_space *mapping,
-@@ -2114,6 +2143,10 @@ retry:
+@@ -2114,6 +2158,10 @@ retry:
  		ext4_snapshot_write_begin(inode, page, len, 0);
  #endif
  
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	ext4_auto_defrag_write_begin(inode, page);
++	ext4_autodefrag_write_begin(inode, page);
 +#endif
 +
  	if (ext4_should_dioread_nolock(inode))
  		ret = __block_write_begin(page, pos, len, ext4_get_block_write);
  	else
-@@ -2158,6 +2191,7 @@ retry:
+@@ -2158,6 +2206,7 @@ retry:
  
  	if (ret == -ENOSPC && ext4_should_retry_alloc(inode->i_sb, &retries))
  		goto retry;
@@ -345,7 +369,7 @@ index 0ede8cc..33d347c 100644
  out:
  	return ret;
  }
-@@ -2730,6 +2764,9 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+@@ -2730,6 +2779,9 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
  	if ((mpd->b_size == 0) ||
  	    ((mpd->b_state  & (1 << BH_Mapped)) &&
  	     !(mpd->b_state & (1 << BH_Delay)) &&
@@ -355,7 +379,7 @@ index 0ede8cc..33d347c 100644
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
  	     !(mpd->b_state & (1 << BH_Unwritten)) &&
  		 !(mpd->b_state & (1 << BH_Remap))))
-@@ -2766,6 +2803,11 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+@@ -2766,6 +2818,11 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
  		get_blocks_flags |= EXT4_GET_BLOCKS_IO_CREATE_EXT;
  	if (mpd->b_state & (1 << BH_Delay))
  		get_blocks_flags |= EXT4_GET_BLOCKS_DELALLOC_RESERVE;
@@ -367,7 +391,7 @@ index 0ede8cc..33d347c 100644
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
  	if (mpd->b_state & (1 << BH_Remap))
  		get_blocks_flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE |
-@@ -2855,12 +2897,22 @@ submit_io:
+@@ -2855,12 +2912,22 @@ submit_io:
  }
  
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
@@ -390,14 +414,36 @@ index 0ede8cc..33d347c 100644
  
  /*
   * mpage_add_bh_to_extent - try to add one more block to extent of blocks
-@@ -3766,7 +3818,9 @@ retry:
+@@ -3088,6 +3155,10 @@ static int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
+ 		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
+ 
+ #endif
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (ext4_should_auto_defrag(inode))
++		flags |= EXT4_GET_BLOCKS_AUTO_DEFRAG;
++#endif
+ 	/*
+ 	 * first, we need to know whether the block is allocated already
+ 	 * preallocated blocks are unmapped but should treated
+@@ -3766,7 +3837,9 @@ retry:
  	if (EXT4_SNAPSHOTS(inode->i_sb))
  		ext4_snapshot_write_begin(inode, page, len, 1);
  #endif
 -
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	ext4_auto_defrag_write_begin(inode, page);
++	ext4_autodefrag_write_begin(inode, page);
 +#endif
  	ret = __block_write_begin(page, pos, len, ext4_da_get_block_prep);
  	if (ret < 0) {
  		unlock_page(page);
+@@ -4230,6 +4303,10 @@ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
+ 		   inode->i_ino, create);
+ 	if (ext4_snapshot_should_move_data(inode))
+ 		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (ext4_should_auto_defrag(inode))
++		flags |= EXT4_GET_BLOCKS_AUTO_DEFRAG;
++#endif
+ 	return _ext4_get_block(inode, iblock, bh_result, flags);
+ #else
+ 	ext4_debug("ext4_get_block_write: inode %lu, create flag %d\n",

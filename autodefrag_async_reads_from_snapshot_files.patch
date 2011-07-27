@@ -1,11 +1,8 @@
-Issue async reads from snapshot files to do defrag.
+ext4: add functions which read blocks of snapshot files asynchronously
 
-If the goal blocks of a file to be written belongs to a snapshot files,
-async reads on the goal blocks from snapshot files is issued to defrag
-the file.
-
+This patch adds functions which read specified blocks of snapshot files.
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index 912099a..8052d8d 100644
+index 3446ed4..b4feb37 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
 @@ -14,14 +14,31 @@
@@ -44,7 +41,7 @@ index 912099a..8052d8d 100644
  {
  	ext4_fsblk_t oldblock = 0;
  	int err = 0;
-@@ -92,4 +109,417 @@ free_blocks:
+@@ -92,4 +109,415 @@ free_blocks:
  			       ee_newlen, 0);
  	return err;
  }
@@ -80,10 +77,10 @@ index 912099a..8052d8d 100644
 +}
 +
 +/*
-+ * set_page_buffers_dirty_remap() sets mapped buffers of
-+ * the @page dirty and remap and uptodate.
++ * set_page_buffers_dirty() sets mapped buffers of
++ * the @page dirty and uptodate.
 + */
-+static void set_page_buffers_dirty_remap(struct page *page) {
++static void set_page_buffers_dirty(struct page *page) {
 +	struct buffer_head *bh;
 +	struct buffer_head *head;
 +
@@ -93,7 +90,6 @@ index 912099a..8052d8d 100644
 +	head = bh;
 +	do {
 +		if (buffer_mapped(bh)) {
-+			set_buffer_remap(bh);
 +			set_buffer_uptodate(bh);
 +			mark_buffer_dirty(bh);
 +		}
@@ -117,7 +113,7 @@ index 912099a..8052d8d 100644
 +		BUG_ON(bio_data_dir(bio) != READ);
 +		if (uptodate) {
 +			SetPageUptodate(page);
-+			set_buffers_dirty_remap(page);
++			set_buffers_dirty(page);
 +		} else {
 +			ClearPageUptodate(page);
 +			SetPageError(page);
@@ -152,7 +148,6 @@ index 912099a..8052d8d 100644
 +	if (uptodate) {
 +		set_buffer_uptodate(bh);
 +		mark_buffer_dirty(bh);
-+		set_buffer_remap(bh);
 +	} else {
 +		clear_buffer_uptodate(bh);
 +		if (!quiet_error(bh))
@@ -326,7 +321,7 @@ index 912099a..8052d8d 100644
 +	if (!PageUptodate(page)) {
 +		ext4_read_mapped_buffers_dirty(page);
 +	} else {
-+		set_buffers_dirty_remap(page);
++		set_buffers_dirty(page);
 +		unlock_page(page);
 +	}
 +	goto out;
@@ -391,7 +386,7 @@ index 912099a..8052d8d 100644
 +				continue;
 +			}
 +			ext4_map_page_buffers(page, pblk);
-+			set_buffers_dirty_remap(page);
++			set_buffers_dirty(page);
 +			unlock_page(page);
 +			continue;
 +		}
@@ -463,10 +458,10 @@ index 912099a..8052d8d 100644
 +}
  #endif
 diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
-index d3f4738..11585ad 100644
+index 2e9f1d0..8add9f8 100644
 --- a/fs/ext4/auto_defrag.h
 +++ b/fs/ext4/auto_defrag.h
-@@ -18,4 +18,7 @@ extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
+@@ -39,4 +39,7 @@ extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
  				  struct ext4_extent *ex,
  				  struct ext4_extent *newex);
  
@@ -474,88 +469,3 @@ index d3f4738..11585ad 100644
 +				       ext4_fsblk_t goal,
 +				       ext4_fsblk_t len);
  #endif
-diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index fcd6af3..c1d5531 100644
---- a/fs/ext4/extents.c
-+++ b/fs/ext4/extents.c
-@@ -3214,6 +3214,23 @@ out:
- }
- #endif
- 
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+/*
-+ * This function lookup if the goal blocks of the requested blocks
-+ * belong to snapshot,  If so, async reads on the goal blocks are
-+ * issued,
-+ * @inode: inode to be defragged.
-+ * @map:   map info
-+ */
-+void ext4_auto_defrag_begin(struct inode *inode,
-+			    struct ext4_fsblk_t goal)
-+{
-+	ext4_fsblk_t goal;
-+	ar.goal = ext4_ext_find_goal(inode, path, map->m_lblk);
-+	ext4_auto_defrag_async_read_blocks();
-+}
-+#endif
-+
- /*
-  * Block allocation/map/preallocation routine for extents based files
-  *
-@@ -3384,6 +3401,14 @@ found:
- 			goto out2;
- 	}
- 
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG) {
-+		ext4_fsblk_t goal;
-+		goal = ext4_ext_find_goal(inode, path, map->m_lblk);
-+		err = ext4_auto_defrag_async_read_blocks(inode, goal,
-+							 allocated);
-+	}
-+#endif
- 	if (!(flags & EXT4_GET_BLOCKS_CREATE))
- 		goto out;
- 
-diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index 33d347c..93325f2 100644
---- a/fs/ext4/inode.c
-+++ b/fs/ext4/inode.c
-@@ -1829,6 +1829,12 @@ int ext4_get_block_mow(struct inode *inode, sector_t iblock,
- 
- 	if (ext4_snapshot_should_move_data(inode))
- 		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
-+
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (ext4_should_auto_defrag(inode))
-+		flags |= EXT4_GET_BLOCKS_AUTO_DEFRAG;
-+#endif
-+
- 	return _ext4_get_block(inode, iblock, bh, flags);
- }
- 
-@@ -2088,10 +2094,9 @@ static void ext4_auto_defrag_write_begin(struct inode *inode, struct page *page)
- 		 * make sure that get_block() is called even if the buffer is
- 		 * mapped, but not if it is already marked with BH_Auto_defrag.
- 		 */
--		if (!buffer_delay(bh) && !buffer_auto_defrag(bh) &&
--		    buffer_mapped(bh))
-+		if (!buffer_auto_defrag(bh))
- 			/* explicitly request defrag */
--			set_buffer_auto_defrag(bh);
-+			clear_buffer_mapped(bh);
- 		bh = bh->b_this_page;
- 	} while (bh != head);
- }
-@@ -3140,6 +3145,11 @@ static int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
- 		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
- 
- #endif
-+#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (ext4_should_auto_defrag(inode))
-+		flags |= EXT4_GET_BLOCKS_AUTO_DEFRAG;
-+#endif
-+
- 	/*
- 	 * first, we need to know whether the block is allocated already
- 	 * preallocated blocks are unmapped but should treated

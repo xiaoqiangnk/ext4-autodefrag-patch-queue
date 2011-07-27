@@ -1,0 +1,57 @@
+ext4: add a function which reallocates blocks for snapshot files
+
+This patch adds a function named ext4_remap_blocks() which remaps
+blocks for snapshot files and frees original blocks.
+
+Signed-off-by: Yongqiang Yang <xiaoqiangnk@gmail.com>
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
+index b89a83a..9ef1158 100644
+--- a/fs/ext4/auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
+@@ -111,6 +111,37 @@ free_blocks:
+ }
+ 
+ /*
++ * ext4_remap_blocks() reallocates blocks for snapshot files. 
++ */
++static void ext4_remap_blocks(struct inode *inode, ext4_lblk_t lblk,
++			     ext4_fsblk_t count)
++{
++	struct ext4_map_blocks map;
++	handle_t *handle;
++	int needed_blocks, ret;
++
++	needed_blocks = ext4_writepage_trans_blocks(inode) + 1;
++
++	handle = ext4_journal_start(inode, needed_blocks);
++	if (IS_ERR(handle))
++		return;
++
++	while(count > 0) {
++		map.m_lblk = lblk;
++		map.m_len  = count;
++		map.m_flags = EXT4_MAP_REMAP;
++		ret = ext4_map_blocks(handle, inode, &map,
++				      EXT4_GET_BLOCKS_CREATE);
++		if (ret <= 0)
++			break;
++		ext4_free_blocks(handle, inode, NULL, lblk, ret, 0);
++		count -= ret;
++		lblk += ret;
++	}
++	ext4_journal_stop(handle);
++}
++
++/*
+  * ext4_map_page_buffers() map buffers attached to @page with blocks stating at
+  * @pblk
+  */
+@@ -149,7 +180,7 @@ static void set_page_buffers_dirty_remap(struct page *page) {
+ 	struct buffer_head *head;
+ 
+ 	BUG_ON(!page->mapping || !PageUptodate(page) || !page_has_buffers(page));
+-	
++
+ 	bh = page_buffers(page);
+ 	head = bh;
+ 	do {

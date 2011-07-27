@@ -1,0 +1,12 @@
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
+index 169e235..21cf827 100644
+--- a/fs/ext4/auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
+@@ -209,6 +209,7 @@ static void ext4_read_and_dirty_end_io(struct bio *bio, int err) {
+ 		if (uptodate) {
+ 			SetPageUptodate(page);
+ 			set_buffers_dirty(page);
++			ext4_remap_blocks(page->i_mapping->host, page->index, 1);
+ 		} else {
+ 			ClearPageUptodate(page);
+ 			SetPageError(page);

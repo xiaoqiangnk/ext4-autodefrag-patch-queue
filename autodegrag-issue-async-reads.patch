@@ -1,0 +1,101 @@
+ext4: issue async reads on snapshot files
+
+If a file is rewritten and goal blocks is taken by snapshot files,
+then async reads on the blocks of the snapshot files are issued.
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 829b7c0..25e03c1 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -205,6 +205,9 @@ struct ext4_allocation_request {
+ #define EXT4_MAP_UNWRITTEN	(1 << BH_Unwritten)
+ #define EXT4_MAP_BOUNDARY	(1 << BH_Boundary)
+ #define EXT4_MAP_UNINIT		(1 << BH_Uninit)
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++#define EXT4_MAP_AUTO_DEFRAG		(1 << BH_Auto_Defrag)
++#endif
+ #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
+ #define EXT4_MAP_REMAP		(1 << BH_Remap)
+ #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
+diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
+index 7ed9c04..b1625ab 100644
+--- a/fs/ext4/extents.c
++++ b/fs/ext4/extents.c
+@@ -3214,6 +3214,57 @@ out:
+ }
+ #endif
+ 
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++/*
++ * This function lookup if the goal blocks of the requested blocks
++ * belong to snapshot,  If so, async reads on the goal blocks are
++ * issued,
++ * @inode: inode to be defragged.
++ * @map:   map info
++ */
++void ext4_auto_defrag_begin(struct inode *inode,
++			    struct ext4_map_blocks *map,
++			    struct ext4_ext_path *path)
++{
++	struct ext4_allocation_request ar;
++	ext4_fsblk_t goal;
++
++	goal = ext4_ext_find_goal(inode, path, map->m_lblk);
++	if ((map->m_flags & EXT4MAP_MAPPED) && (goal == map->m_pblk))
++		/* no need to */
++		return;
++
++	ar.lleft = map->m_lblk;
++	err = ext4_ext_search_left(inode, path, &ar.lleft, &ar.pleft);
++	if (err)
++		return;
++	ar.lright = map->m_lblk;
++	err = ext4_ext_search_right(inode, path, &ar.lright, &ar.pright);
++	if (err)
++		return;
++
++	ar.inode = inode;
++	ar.goal = ext4_ext_find_goal(inode, path, map->m_lblk);
++	ar.logical = map->m_lblk;
++	ar.len = map->m_len;
++	/*
++	 * TODO we can not use preallocations here
++	 */
++	ar.flags = EXT4_MB_HINT_DATA | EXT4_MB_HINT_GOAL_ONLY |
++		   EXT4_MB_HINT_PREALLOC;
++
++	goal = ext4_mb_new_blocks(handle, &ar, &err);
++	if (goal > 0) {
++		map->m_flags |= EXT4_MAP_AUTO_DEFRAG;
++		return;
++	}
++
++	goal = ext4_auto_defrag_async_read_blocks(goal, map->m_len);
++	if (goal > 0)
++		map->m_flags |= EXT4_MAP_AUTO_DEFRAG;
++}
++#endif
++
+ /*
+  * Block allocation/map/preallocation routine for extents based files
+  *
+@@ -3572,6 +3623,20 @@ found:
+ 	} else
+ 		ext4_update_inode_fsync_trans(handle, inode, 0);
+ out:
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (!(flags & EXT4_GET_BLOCKS_CREATE) &&
++	    (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)) {
++		if (path == NULL) {
++			path = ext4_ext_find_extent(inode, map->m_lblk, NULL);
++			if (IS_ERR(path)) {
++				err = PTR_ERR(path);
++				path = NULL;
++				goto out2;
++			}
++		}
++		ext4_auto_defrag_begin(inode, map, path);
++	}
++#endif
+ 	if (allocated > map->m_len)
+ 		allocated = map->m_len;
+ 	ext4_ext_show_leaf(inode, path);
