@@ -1,3 +1,9 @@
+ext4: enable ext4_mb_new_blocks() to preallocate blocks only
+
+Current ext4_mb_new_blocks() allocates blocks and adds surplus blocks
+to preallocation, but it can not adds all blocks to praellocation.
+
+Patched ext4_mb_new_blocks can adds all blocks to preallocation.
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
 index accf7a2..829b7c0 100644
 --- a/fs/ext4/ext4.h
