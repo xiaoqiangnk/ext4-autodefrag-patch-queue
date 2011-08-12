@@ -6,3 +6,4 @@ reallcoate-blocks-for-snapshot-file.patch
 remap-blocks-in-read-call-backs.patch
 autodefrag-add-debug-support.patch
 autodefrag-enable-debug.patch
+autodefrag-add-debug-points.patch

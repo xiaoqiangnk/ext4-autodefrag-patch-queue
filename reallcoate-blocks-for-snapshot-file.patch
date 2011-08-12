@@ -5,11 +5,19 @@ blocks for snapshot files and frees original blocks.
 
 Signed-off-by: Yongqiang Yang <xiaoqiangnk@gmail.com>
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index b89a83a..9ef1158 100644
+index 6527cd7..01ca855 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
-@@ -111,6 +111,37 @@ free_blocks:
- }
+@@ -14,6 +14,7 @@
+ 
+ #include "ext4.h"
+ #include "ext4_extents.h"
++#include "ext4_jbd2.h"
+ #include "auto_defrag.h"
+ 
+ #ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
+@@ -36,6 +37,37 @@
+ 
  
  /*
 + * ext4_remap_blocks() reallocates blocks for snapshot files. 
@@ -46,7 +54,7 @@ index b89a83a..9ef1158 100644
   * ext4_map_page_buffers() map buffers attached to @page with blocks stating at
   * @pblk
   */
-@@ -149,7 +180,7 @@ static void set_page_buffers_dirty_remap(struct page *page) {
+@@ -74,7 +106,7 @@ static void set_page_buffers_dirty(struct page *page) {
  	struct buffer_head *head;
  
  	BUG_ON(!page->mapping || !PageUptodate(page) || !page_has_buffers(page));

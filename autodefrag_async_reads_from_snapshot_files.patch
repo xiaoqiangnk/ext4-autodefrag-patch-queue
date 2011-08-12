@@ -2,13 +2,17 @@ ext4: add functions which read blocks of snapshot files asynchronously
 
 This patch adds functions which read specified blocks of snapshot files.
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index 3446ed4..b4feb37 100644
+index f4fb90c..6527cd7 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
-@@ -14,14 +14,31 @@
-  */
- 
- /*
+@@ -15,6 +15,446 @@
+ #include "ext4.h"
+ #include "ext4_extents.h"
+ #include "auto_defrag.h"
+-#define CONFIG_EXT4_FS_AUTO_DEFRAG
++
+ #ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++ /*
 + * auto-defrag methodology:
 + * For now auto-defrag is designed for ext4 snapshots, so it is based on
 + * snaoshot feature.  Metadata is snapshotted by cow while data is
@@ -25,32 +29,12 @@ index 3446ed4..b4feb37 100644
 + *
 + */
 +
-+/*
-  * This function tries to defrag a file by replacing the physical blocks of @ex
-  * with the physical blocks of @newex.
-  */
- int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
--				  struct ext4_ext_path *path,
--				  struct ext4_map_blocks *map,
--				  struct ext4_extent *ex,
--				  struct ext4_extent *newex)
-+			   struct ext4_ext_path *path,
-+			   struct ext4_map_blocks *map,
-+			   struct ext4_extent *ex,
-+			   struct ext4_extent *newex)
- {
- 	ext4_fsblk_t oldblock = 0;
- 	int err = 0;
-@@ -92,4 +109,415 @@ free_blocks:
- 			       ee_newlen, 0);
- 	return err;
- }
 +
 +/*
 + * ext4_map_page_buffers() map buffers attached to @page with blocks stating at
 + * @pblk
 + */
-+static void ext4_map_page_buffers(struct page *page, ext4_fsbk_t pblk)
++static void ext4_map_page_buffers(struct page *page, ext4_fsblk_t pblk)
 +{
 +	struct inode *inode;
 +	struct buffer_head *bh;
@@ -60,7 +44,7 @@ index 3446ed4..b4feb37 100644
 + 	inode = page->mapping->host;
 +
 +	if (!page_has_buffers(page))
-+		create_empty_buffers(page);
++		create_empty_buffers(page, inode->i_sb->s_blocksize, 0);
 +
 +	bh = page_buffers(page);
 +	head = bh;
@@ -103,8 +87,6 @@ index 3446ed4..b4feb37 100644
 +static void ext4_read_and_dirty_end_io(struct bio *bio, int err) {
 +	const int uptodate = test_bit(BIO_UPTODATE, &bio->bi_flags);
 +	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
-+	struct buffer_head *bh, *head;
-+
 +	do {
 +		struct page *page = bvec->bv_page;
 +
@@ -113,7 +95,7 @@ index 3446ed4..b4feb37 100644
 +		BUG_ON(bio_data_dir(bio) != READ);
 +		if (uptodate) {
 +			SetPageUptodate(page);
-+			set_buffers_dirty(page);
++			set_page_buffers_dirty(page);
 +		} else {
 +			ClearPageUptodate(page);
 +			SetPageError(page);
@@ -128,6 +110,21 @@ index 3446ed4..b4feb37 100644
 +	bio->bi_end_io = ext4_read_and_dirty_end_io;
 +	submit_bio(READ, bio);
 +	return NULL;
++}
++
++static int quiet_error(struct buffer_head *bh)
++{
++	if (!test_bit(BH_Quiet, &bh->b_state) && printk_ratelimit())
++		return 0;
++	return 1;
++}
++
++static void buffer_io_error(struct buffer_head *bh)
++{
++	char b[BDEVNAME_SIZE];
++	printk(KERN_ERR "Buffer I/O error on device %s, logical block %Lu\n",
++			bdevname(bh->b_bdev, b),
++			(unsigned long long)bh->b_blocknr);
 +}
 +
 +/*
@@ -203,7 +200,6 @@ index 3446ed4..b4feb37 100644
 + */
 +int ext4_read_mapped_buffers_dirty(struct page *page)
 +{
-+	struct inode *inode = page->mapping->host;
 +	struct buffer_head *bh, *head, *arr[MAX_BUF_PER_PAGE];
 +	int nr, i;
 +
@@ -218,7 +214,7 @@ index 3446ed4..b4feb37 100644
 +		if (buffer_uptodate(bh))
 +			continue;
 +		arr[nr++] = bh;
-+	} while (i++, iblock++, (bh = bh->b_this_page) != head);
++	} while (i++, (bh = bh->b_this_page) != head);
 +
 +
 +	if (!nr) {
@@ -236,7 +232,7 @@ index 3446ed4..b4feb37 100644
 +	for (i = 0; i < nr; i++) {
 +		bh = arr[i];
 +		lock_buffer(bh);
-+		mark_buffer_async_read(bh);
++		mark_buffer_async_read_dirty(bh);
 +	}
 +
 +	/*
@@ -247,7 +243,7 @@ index 3446ed4..b4feb37 100644
 +	for (i = 0; i < nr; i++) {
 +		bh = arr[i];
 +		if (buffer_uptodate(bh))
-+			end_buffer_async_read_redirty(bh, 1);
++			end_buffer_async_read_dirty(bh, 1);
 +		else
 +			submit_bh(READ, bh);
 +	}
@@ -286,12 +282,11 @@ index 3446ed4..b4feb37 100644
 + * @nr_pages: the nr of left pages
 + * @pblock: the block to be read 
 + */
-+static struct bio *ext4_read_and_dirty_page(struct page *page,
++static struct bio *ext4_read_and_dirty_page(struct bio *bio, struct page *page,
 +			unsigned nr_pages, ext4_fsblk_t pblock)
 +{
 +	struct inode *inode = page->mapping->host;
 +	const unsigned blkbits = inode->i_blkbits;
-+	const unsigned blocks_per_page = PAGE_CACHE_SIZE >> blkbits;
 +	struct block_device *bdev = inode->i_sb->s_bdev;
 +
 +	if (page_has_buffers(page))
@@ -307,8 +302,8 @@ index 3446ed4..b4feb37 100644
 +			goto confused;
 +	}
 +
-+	if (bio_add_page(bio, page, PAGE_CACHE_SIZE, 0) < length) {
-+		bio = ext4_read_and_redirty_bio_submit(bio);
++	if (bio_add_page(bio, page, PAGE_CACHE_SIZE, 0) < PAGE_CACHE_SIZE) {
++		bio = ext4_read_and_dirty_bio_submit(bio);
 +		goto alloc_new;
 +	}
 +
@@ -321,7 +316,7 @@ index 3446ed4..b4feb37 100644
 +	if (!PageUptodate(page)) {
 +		ext4_read_mapped_buffers_dirty(page);
 +	} else {
-+		set_buffers_dirty(page);
++		set_page_buffers_dirty(page);
 +		unlock_page(page);
 +	}
 +	goto out;
@@ -334,7 +329,7 @@ index 3446ed4..b4feb37 100644
 + * XXX For now this function does not work if blocksize != pagesize
 + */
 +static int ext4_read_and_dirty_blocks(struct inode *inode,
-+				      struct ext4_ext_map_blocks *map)
++				      struct ext4_map_blocks *map)
 +{
 +	int err, i, nr_pages;
 +	unsigned blkbits = inode->i_blkbits;
@@ -344,8 +339,6 @@ index 3446ed4..b4feb37 100644
 +	struct page *page;
 +	struct page **pages;
 +	struct bio  *bio = NULL;
-+	struct buffer_head *bh;
-+	struct buffer_head *head;
 +	struct address_space *mapping = inode->i_mapping;
 +	ext4_lblk_t lblk = map->m_lblk;
 +	ext4_fsblk_t pblk = map->m_pblk;
@@ -355,7 +348,7 @@ index 3446ed4..b4feb37 100644
 +		     (PAGE_CACHE_SHIFT - blkbits);
 +	nr_pages = last_index - index;
 +
-+	pages = kmalloc(nr_pages * sizeof(*pages));
++	pages = kmalloc(nr_pages * sizeof(*pages), GFP_NOFS);
 +	if (pages == NULL)
 +		return -ENOMEM;
 +
@@ -373,7 +366,7 @@ index 3446ed4..b4feb37 100644
 +						    index, GFP_KERNEL);
 +			if (err) {
 +				page_cache_release(page);
-+				if (err = -EEXIST)
++				if (err == -EEXIST)
 +					goto find_page;
 +				goto out;
 +			}
@@ -386,7 +379,7 @@ index 3446ed4..b4feb37 100644
 +				continue;
 +			}
 +			ext4_map_page_buffers(page, pblk);
-+			set_buffers_dirty(page);
++			set_page_buffers_dirty(page);
 +			unlock_page(page);
 +			continue;
 +		}
@@ -395,14 +388,15 @@ index 3446ed4..b4feb37 100644
 +	}
 +
 +	for (index = 0; index < i; index++) {
-+		pblk += pages[index]->index << (PAGE_CACHE_SHIFT - blkbits) - map->m_lblk;
++		pblk += (pages[index]->index << (PAGE_CACHE_SHIFT - blkbits)) -
++			map->m_lblk;
 +		bio = ext4_read_and_dirty_page(bio, pages[index], i - index,
 +					       pblk);
-+		page_cache_release(page);
++		page_cache_release(pages[index]);
 +	}
 +
 +	if (bio)
-+		mpage_bio_submit(READ, bio);
++		ext4_read_and_dirty_bio_submit(bio);
 +out:
 +	kfree(pages);
 +	return err;
@@ -422,6 +416,7 @@ index 3446ed4..b4feb37 100644
 +				       ext4_fsblk_t blk,
 +				       ext4_fsblk_t len)
 +{
++	struct list_head *l, *n;
 +	int err = 0;
 +	struct ext4_inode_info *ei;
 +	struct ext4_map_blocks map;
@@ -433,9 +428,10 @@ index 3446ed4..b4feb37 100644
 +	map.m_len  = len;
 +	map.m_flags = 0;
 +
-+	list_for_each_entry(ei, sbi->s_snapshot_list, i_snapshot_list) {
++	list_for_each_safe(l, n, &sbi->s_snapshot_list) {
 +		struct inode *snapshot;
-+		snapshot = ei->vfs_inode;
++		ei = list_entry(l, struct ext4_inode_info, i_snaplist);
++		snapshot = &ei->vfs_inode;
 +
 +		map.m_lblk = SNAPSHOT_IBLOCK(start);
 +		map.m_len  = end - start;
@@ -446,7 +442,7 @@ index 3446ed4..b4feb37 100644
 +			return err;
 +		if (!err)
 +			continue;
-+		if (map.m_pblk != SNAPSHOT_BLOCK(map->m_lblk))
++		if (map.m_pblk != SNAPSHOT_BLOCK(map.m_lblk))
 +			continue;
 +
 +		err = ext4_read_and_dirty_blocks(snapshot, &map);
@@ -458,14 +454,15 @@ index 3446ed4..b4feb37 100644
 +}
  #endif
 diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
-index 2e9f1d0..8add9f8 100644
+index 7bf108d..67b2a12 100644
 --- a/fs/ext4/auto_defrag.h
 +++ b/fs/ext4/auto_defrag.h
-@@ -39,4 +39,7 @@ extern int ext4_ext_try_to_defrag(handle_t *handle, struct inode *inode,
- 				  struct ext4_extent *ex,
- 				  struct ext4_extent *newex);
- 
-+int ext4_auto_defrag_async_read_blocks(struct inode *inode,
-+				       ext4_fsblk_t goal,
-+				       ext4_fsblk_t len);
+@@ -32,4 +32,8 @@ static inline int ext4_should_auto_defrag(struct inode *inode)
+ 		return 0;
+ 	return 1;
+ }
++
++extern int ext4_auto_defrag_async_read_blocks(struct inode *inode,
++					      ext4_fsblk_t blk,
++					      ext4_fsblk_t len);
  #endif

@@ -1,20 +1,5 @@
-diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index accf7a2..a0ce258 100644
---- a/fs/ext4/ext4.h
-+++ b/fs/ext4/ext4.h
-@@ -88,6 +88,10 @@
- #define CONFIG_EXT4_FS_SNAPSHOT_
- #endif
- 
-+#ifndef CONFIG_EXT4_FS_AUTO_DEFRAG
-+#define CONFIG_EXT4_FS_AUTO_DEFRAG
-+#endif
-+
- /*
-  * The fourth extended filesystem constants/structures
-  */
 diff --git a/fs/ext4/mballoc.c b/fs/ext4/mballoc.c
-index e71ef6c..a1d2ace 100644
+index b651330..6febd0a 100644
 --- a/fs/ext4/mballoc.c
 +++ b/fs/ext4/mballoc.c
 @@ -26,6 +26,7 @@
