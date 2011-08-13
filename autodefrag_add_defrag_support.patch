@@ -291,7 +291,7 @@ index 8ab41ea..a01247e 100644
  		err = ext4_ext_insert_extent(handle, inode,
  					     path, &newex, flags);
 diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index 0ede8cc..dc637df 100644
+index 0ede8cc..9a1240c 100644
 --- a/fs/ext4/inode.c
 +++ b/fs/ext4/inode.c
 @@ -52,6 +52,7 @@
@@ -302,31 +302,35 @@ index 0ede8cc..dc637df 100644
  
  #define MPAGE_DA_EXTENT_TAIL 0x01
  
-@@ -1593,6 +1594,11 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+@@ -1591,15 +1592,27 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ #endif
+ 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_EXTENT
- 		retval = ext4_ext_map_blocks(handle, inode, map,
- 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +		retval = ext4_ext_map_blocks(handle, inode, map,
 +				flags & (EXT4_GET_BLOCKS_MOVE_ON_WRITE |
 +					 EXT4_GET_BLOCKS_AUTO_DEFRAG));
++#else
+ 		retval = ext4_ext_map_blocks(handle, inode, map,
+ 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
 +#endif
  #else
  		retval = ext4_ext_map_blocks(handle, inode, map, 0);
  #endif
-@@ -1600,6 +1606,11 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ 	} else {
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
- 		retval = ext4_ind_map_blocks(handle, inode, map,
- 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +		retval = ext4_ind_map_blocks(handle, inode, map,
 +				flags & (EXT4_GET_BLOCKS_MOVE_ON_WRITE |
 +					 EXT4_GET_BLOCKS_AUTO_DEFRAG));
++#else
+ 		retval = ext4_ind_map_blocks(handle, inode, map,
+ 				flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE);
 +#endif
  #else
  		retval = ext4_ind_map_blocks(handle, inode, map, 0);
  #endif
-@@ -1829,6 +1840,10 @@ int ext4_get_block_mow(struct inode *inode, sector_t iblock,
+@@ -1829,6 +1842,10 @@ int ext4_get_block_mow(struct inode *inode, sector_t iblock,
  
  	if (ext4_snapshot_should_move_data(inode))
  		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
@@ -337,7 +341,7 @@ index 0ede8cc..dc637df 100644
  	return _ext4_get_block(inode, iblock, bh, flags);
  }
  
-@@ -2067,6 +2082,36 @@ static void ext4_snapshot_write_begin(struct inode *inode,
+@@ -2067,6 +2084,36 @@ static void ext4_snapshot_write_begin(struct inode *inode,
  }
  
  #endif
@@ -374,7 +378,7 @@ index 0ede8cc..dc637df 100644
  static int ext4_get_block_write(struct inode *inode, sector_t iblock,
  		   struct buffer_head *bh_result, int create);
  static int ext4_write_begin(struct file *file, struct address_space *mapping,
-@@ -2114,6 +2159,10 @@ retry:
+@@ -2114,6 +2161,10 @@ retry:
  		ext4_snapshot_write_begin(inode, page, len, 0);
  #endif
  
@@ -385,7 +389,7 @@ index 0ede8cc..dc637df 100644
  	if (ext4_should_dioread_nolock(inode))
  		ret = __block_write_begin(page, pos, len, ext4_get_block_write);
  	else
-@@ -2158,6 +2207,7 @@ retry:
+@@ -2158,6 +2209,7 @@ retry:
  
  	if (ret == -ENOSPC && ext4_should_retry_alloc(inode->i_sb, &retries))
  		goto retry;
@@ -393,7 +397,7 @@ index 0ede8cc..dc637df 100644
  out:
  	return ret;
  }
-@@ -2730,6 +2780,9 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+@@ -2730,6 +2782,9 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
  	if ((mpd->b_size == 0) ||
  	    ((mpd->b_state  & (1 << BH_Mapped)) &&
  	     !(mpd->b_state & (1 << BH_Delay)) &&
@@ -403,7 +407,7 @@ index 0ede8cc..dc637df 100644
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
  	     !(mpd->b_state & (1 << BH_Unwritten)) &&
  		 !(mpd->b_state & (1 << BH_Remap))))
-@@ -2766,6 +2819,11 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+@@ -2766,6 +2821,11 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
  		get_blocks_flags |= EXT4_GET_BLOCKS_IO_CREATE_EXT;
  	if (mpd->b_state & (1 << BH_Delay))
  		get_blocks_flags |= EXT4_GET_BLOCKS_DELALLOC_RESERVE;
@@ -415,7 +419,7 @@ index 0ede8cc..dc637df 100644
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
  	if (mpd->b_state & (1 << BH_Remap))
  		get_blocks_flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE |
-@@ -2855,12 +2913,22 @@ submit_io:
+@@ -2855,12 +2915,22 @@ submit_io:
  }
  
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
@@ -438,7 +442,7 @@ index 0ede8cc..dc637df 100644
  
  /*
   * mpage_add_bh_to_extent - try to add one more block to extent of blocks
-@@ -3088,6 +3156,10 @@ static int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
+@@ -3088,6 +3158,10 @@ static int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
  		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;
  
  #endif
@@ -449,7 +453,7 @@ index 0ede8cc..dc637df 100644
  	/*
  	 * first, we need to know whether the block is allocated already
  	 * preallocated blocks are unmapped but should treated
-@@ -3766,7 +3838,9 @@ retry:
+@@ -3766,7 +3840,9 @@ retry:
  	if (EXT4_SNAPSHOTS(inode->i_sb))
  		ext4_snapshot_write_begin(inode, page, len, 1);
  #endif
@@ -460,7 +464,7 @@ index 0ede8cc..dc637df 100644
  	ret = __block_write_begin(page, pos, len, ext4_da_get_block_prep);
  	if (ret < 0) {
  		unlock_page(page);
-@@ -4230,6 +4304,10 @@ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
+@@ -4230,6 +4306,10 @@ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
  		   inode->i_ino, create);
  	if (ext4_snapshot_should_move_data(inode))
  		flags |= EXT4_GET_BLOCKS_MOVE_ON_WRITE;

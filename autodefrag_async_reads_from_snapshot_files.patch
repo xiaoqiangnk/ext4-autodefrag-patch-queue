@@ -2,7 +2,7 @@ ext4: add functions which read blocks of snapshot files asynchronously
 
 This patch adds functions which read specified blocks of snapshot files.
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index f4fb90c..6527cd7 100644
+index f4fb90c..37a88e4 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
 @@ -15,6 +15,446 @@
@@ -424,30 +424,30 @@ index f4fb90c..6527cd7 100644
 +	ext4_fsblk_t start = blk;
 +	ext4_fsblk_t end = blk + len;
 +
-+	map.m_lblk = SNAPSHOT_IBLOCK(blk);
-+	map.m_len  = len;
-+	map.m_flags = 0;
-+
 +	list_for_each_safe(l, n, &sbi->s_snapshot_list) {
 +		struct inode *snapshot;
 +		ei = list_entry(l, struct ext4_inode_info, i_snaplist);
 +		snapshot = &ei->vfs_inode;
 +
-+		map.m_lblk = SNAPSHOT_IBLOCK(start);
-+		map.m_len  = end - start;
-+		map.m_flags = 0;
++		start = blk;
++		while (start < end) {
++			map.m_lblk = SNAPSHOT_IBLOCK(start);
++			map.m_len  = end - start;
++			map.m_flags = 0;
++			err = ext4_map_blocks(NULL, snapshot, &map, 0);
++			if (err < 0)
++				return err;
 +
-+		err = ext4_map_blocks(NULL, snapshot, &map, 0);
-+		if (err < 0)
-+			return err;
-+		if (!err)
-+			continue;
-+		if (map.m_pblk != SNAPSHOT_BLOCK(map.m_lblk))
-+			continue;
-+
-+		err = ext4_read_and_dirty_blocks(snapshot, &map);
-+		if (err)
-+			return err;
++			if (err > 0 &&
++			    map.m_pblk == SNAPSHOT_BLOCK(map.m_lblk)) {
++				err = ext4_read_and_dirty_blocks(snapshot,
++							&map);
++				if (err)
++					return err;
++				start = start + map.m_len;
++			} else
++				start++;
++		}
 +	}
 +
 +	return err;

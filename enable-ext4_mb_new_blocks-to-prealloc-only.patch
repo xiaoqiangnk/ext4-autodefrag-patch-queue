@@ -5,10 +5,10 @@ to preallocation, but it can not adds all blocks to praellocation.
 
 Patched ext4_mb_new_blocks can adds all blocks to preallocation.
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index accf7a2..829b7c0 100644
+index 17408433..6f91875 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -168,6 +168,9 @@ typedef unsigned int ext4_group_t;
+@@ -171,6 +171,9 @@ typedef unsigned int ext4_group_t;
  /* allocate blocks for active snapshot */
  #define EXT4_MB_HINT_COWING		0x02000
  #endif
@@ -19,7 +19,7 @@ index accf7a2..829b7c0 100644
  struct ext4_allocation_request {
  	/* target inode for block we're allocating */
 diff --git a/fs/ext4/mballoc.c b/fs/ext4/mballoc.c
-index e71ef6c..b651330 100644
+index e71ef6c..efb2b29 100644
 --- a/fs/ext4/mballoc.c
 +++ b/fs/ext4/mballoc.c
 @@ -4348,7 +4348,12 @@ nofail:
@@ -47,14 +47,16 @@ index e71ef6c..b651330 100644
  		/* as we've just preallocated more space than
  		 * user requested orinally, we store allocated
  		 * space in a special descriptor */
-@@ -4364,6 +4374,14 @@ repeat:
+@@ -4364,6 +4374,16 @@ repeat:
  				ac->ac_o_ex.fe_len < ac->ac_b_ex.fe_len)
  			ext4_mb_new_preallocation(ac);
  	}
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
 +	if (ar->flags & EXT4_MB_HINT_PREALLOC) {
-+		block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
-+		ar->len = ac->ac_b_ex.fe_len;
++		if (ac->ac_status == AC_STATUS_FOUND) {
++			block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
++			ar->len = ac->ac_b_ex.fe_len;
++		}
 +		ext4_mb_release_context(ac);
 +		goto out;
 +	}

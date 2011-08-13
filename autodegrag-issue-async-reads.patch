@@ -17,10 +17,10 @@ index 6f91875..bf1113a 100644
  #define EXT4_MAP_REMAP		(1 << BH_Remap)
  #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index a01247e..2332b98 100644
+index a01247e..6ba5e45 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
-@@ -3296,6 +3296,58 @@ free_blocks:
+@@ -3296,6 +3296,73 @@ free_blocks:
  }
  #endif
  
@@ -32,30 +32,42 @@ index a01247e..2332b98 100644
 + * @inode: inode to be defragged.
 + * @map:   map info
 + */
-+void ext4_auto_defrag_begin(struct inode *inode,
++int ext4_auto_defrag_begin(struct inode *inode,
 +			    struct ext4_map_blocks *map,
 +			    struct ext4_ext_path *path)
 +{
 +	struct ext4_allocation_request ar;
 +	ext4_fsblk_t goal;
-+	int err;
++	int err = 0;
 +
++	if (map->m_lblk == 0)
++		return 0;
++ 	if (path)
++		ext4_ext_drop_refs(path);
++
++	path = ext4_ext_find_extent(inode, map->m_lblk -1, path);
++	if (IS_ERR(path)) {
++		err = PTR_ERR(path);
++		path = NULL;
++		goto out;
++	}
++	
 +	goal = ext4_ext_find_goal(inode, path, map->m_lblk);
 +	if ((map->m_flags & EXT4_MAP_MAPPED) && (goal == map->m_pblk))
 +		/* no need to */
-+		return;
++		goto out;
 +
 +	ar.lleft = map->m_lblk;
 +	err = ext4_ext_search_left(inode, path, &ar.lleft, &ar.pleft);
 +	if (err)
-+		return;
++		goto out;
 +	ar.lright = map->m_lblk;
 +	err = ext4_ext_search_right(inode, path, &ar.lright, &ar.pright);
 +	if (err)
-+		return;
++		goto out;
 +
 +	ar.inode = inode;
-+	ar.goal = ext4_ext_find_goal(inode, path, map->m_lblk);
++	ar.goal = goal;
 +	ar.logical = map->m_lblk;
 +	ar.len = map->m_len;
 +	/*
@@ -67,36 +79,33 @@ index a01247e..2332b98 100644
 +	goal = ext4_mb_new_blocks(NULL, &ar, &err);
 +	if (goal > 0) {
 +		map->m_flags |= EXT4_MAP_AUTO_DEFRAG;
-+		return;
++		goto out;
 +	}
 +
 +	goal = ext4_auto_defrag_async_read_blocks(inode, goal, map->m_len);
 +	if (goal > 0)
 +		map->m_flags |= EXT4_MAP_AUTO_DEFRAG;
++
++out:
++	return err;
 +}
 +#endif
 +
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3661,6 +3713,21 @@ out:
+@@ -3660,7 +3727,15 @@ out:
+ 	map->m_flags |= EXT4_MAP_MAPPED;
  	map->m_pblk = newblock;
  	map->m_len = allocated;
- out2:
++
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (!err && !(flags & EXT4_GET_BLOCKS_CREATE) &&
-+	    (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)) {
-+		if (path == NULL) {
-+			path = ext4_ext_find_extent(inode, map->m_lblk, NULL);
-+			if (IS_ERR(path)) {
-+				err = PTR_ERR(path);
-+				path = NULL;
-+				goto out2;
-+			}
-+		}
++	if (!(flags & EXT4_GET_BLOCKS_CREATE) &&
++	    (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
 +		ext4_auto_defrag_begin(inode, map, path);
-+	}
 +#endif
++
+ out2:
 +
  	if (path) {
  		ext4_ext_drop_refs(path);
