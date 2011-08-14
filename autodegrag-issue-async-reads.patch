@@ -3,10 +3,10 @@ ext4: issue async reads on snapshot files
 If a file is rewritten and goal blocks is taken by snapshot files,
 then async reads on the blocks of the snapshot files are issued.
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 6f91875..bf1113a 100644
+index 6f91875..d03ad84 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -208,6 +208,9 @@ struct ext4_allocation_request {
+@@ -208,11 +208,21 @@ struct ext4_allocation_request {
  #define EXT4_MAP_UNWRITTEN	(1 << BH_Unwritten)
  #define EXT4_MAP_BOUNDARY	(1 << BH_Boundary)
  #define EXT4_MAP_UNINIT		(1 << BH_Uninit)
@@ -15,9 +15,21 @@ index 6f91875..bf1113a 100644
 +#endif
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_DATA
  #define EXT4_MAP_REMAP		(1 << BH_Remap)
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++#define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
++				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
++				 EXT4_MAP_UNINIT | EXT4_MAP_REMAP | \
++				 EXT4_MAP_AUTO_DEFRAG)
++#else
  #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
+ 				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
+ 				 EXT4_MAP_UNINIT | EXT4_MAP_REMAP)
++#endif
+ #else
+ #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
+ 				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index a01247e..6ba5e45 100644
+index a01247e..fd1cf32 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
 @@ -3296,6 +3296,73 @@ free_blocks:
@@ -94,14 +106,13 @@ index a01247e..6ba5e45 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3660,7 +3727,15 @@ out:
+@@ -3660,7 +3727,14 @@ out:
  	map->m_flags |= EXT4_MAP_MAPPED;
  	map->m_pblk = newblock;
  	map->m_len = allocated;
 +
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (!(flags & EXT4_GET_BLOCKS_CREATE) &&
-+	    (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
++	if (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)
 +		ext4_auto_defrag_begin(inode, map, path);
 +#endif
 +
