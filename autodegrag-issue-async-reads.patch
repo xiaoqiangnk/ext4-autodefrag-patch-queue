@@ -29,7 +29,7 @@ index 6f91875..d03ad84 100644
  #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
  				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index a01247e..fd1cf32 100644
+index a01247e..39e47a5 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
 @@ -3296,6 +3296,73 @@ free_blocks:
@@ -63,7 +63,7 @@ index a01247e..fd1cf32 100644
 +		path = NULL;
 +		goto out;
 +	}
-+	
++
 +	goal = ext4_ext_find_goal(inode, path, map->m_lblk);
 +	if ((map->m_flags & EXT4_MAP_MAPPED) && (goal == map->m_pblk))
 +		/* no need to */
