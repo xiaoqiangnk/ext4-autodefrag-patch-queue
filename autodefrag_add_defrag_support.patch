@@ -142,7 +142,7 @@ index 9ba5a38..17408433 100644
  /*
   * Add new method to test wether block and inode bitmaps are properly
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index 8ab41ea..a01247e 100644
+index 8ab41ea..46ed826 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
 @@ -46,6 +46,7 @@
@@ -153,7 +153,7 @@ index 8ab41ea..a01247e 100644
  
  static int ext4_ext_truncate_extend_restart(handle_t *handle,
  					    struct inode *inode,
-@@ -3212,6 +3213,89 @@ out:
+@@ -3212,6 +3213,82 @@ out:
  	return err;
  }
  #endif
@@ -183,12 +183,7 @@ index 8ab41ea..a01247e 100644
 +	BUG_ON(merge_len <= 0 || ee_newlen > ee_len ||
 +	       newex->ee_block != ex->ee_block);
 +
-+	if (merge_len == ee_len) {
-+		err = ext4_ext_get_access(handle, inode, path + depth);
-+		if (err)
-+			goto free_blocks;
-+		ext4_ext_store_pblock(ex, ext4_ext_pblock(newex));
-+	} else {
++	if (merge_len != ee_len) {
 +		oldblock = ext4_ext_pblock(ex);
 +		err = ext4_split_extent(handle, inode, path, map, 0,
 +					EXT4_GET_BLOCKS_PRE_IO);
@@ -207,18 +202,16 @@ index 8ab41ea..a01247e 100644
 +		ex = path[depth].p_ext;
 +		BUG_ON(le32_to_cpu(ex->ee_block) != map->m_lblk ||
 +		       ext4_ext_get_actual_len(ex) != map->m_len);
-+
-+		err = ext4_ext_get_access(handle, inode, path + depth);
-+		if (err)
-+			goto free_blocks;
-+		if (!err) {
-+			/* splice new blocks to the inode*/
-+			ext4_ext_store_pblock(ex, ext4_ext_pblock(newex));
-+			ext4_ext_try_to_merge(inode, path, ex);
-+		}
 +	}
 +
++	err = ext4_ext_get_access(handle, inode, path + depth);
++	if (err)
++		goto free_blocks;
++
 +	if (!err) {
++		/* splice new blocks to the inode*/
++		ext4_ext_store_pblock(ex, ext4_ext_pblock(newex));
++		ext4_ext_try_to_merge(inode, path, ex);
 +		err = ext4_ext_dirty(handle, inode, path + depth);
 +		if (err)
 +			goto out;
@@ -243,7 +236,7 @@ index 8ab41ea..a01247e 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3397,6 +3481,10 @@ found:
+@@ -3397,6 +3474,10 @@ found:
  		ex = path[depth].p_ext;
  	}
  #endif
@@ -254,7 +247,7 @@ index 8ab41ea..a01247e 100644
  	/*
  	 * Okay, we need to do block allocation.
  	 */
-@@ -3454,7 +3542,14 @@ found:
+@@ -3454,7 +3535,14 @@ found:
  	ar.logical = map->m_lblk;
  	ar.len = allocated;
  	if (S_ISREG(inode->i_mode))
@@ -269,7 +262,7 @@ index 8ab41ea..a01247e 100644
  	else
  		/* disable in-core preallocation for non-regular files */
  		ar.flags = 0;
-@@ -3496,9 +3591,20 @@ found:
+@@ -3496,9 +3584,20 @@ found:
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_EXTENT
  	if (oldblock) {
  		map->m_len = ar.len;
