@@ -3,10 +3,10 @@ ext4: issue async reads on snapshot files
 If a file is rewritten and goal blocks is taken by snapshot files,
 then async reads on the blocks of the snapshot files are issued.
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 6f91875..d03ad84 100644
+index 383838e..65398ea 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -208,11 +208,21 @@ struct ext4_allocation_request {
+@@ -209,11 +209,21 @@ struct ext4_allocation_request {
  #define EXT4_MAP_UNWRITTEN	(1 << BH_Unwritten)
  #define EXT4_MAP_BOUNDARY	(1 << BH_Boundary)
  #define EXT4_MAP_UNINIT		(1 << BH_Uninit)
@@ -29,10 +29,10 @@ index 6f91875..d03ad84 100644
  #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
  				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index a01247e..39e47a5 100644
+index 46ed826..ee7264f 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
-@@ -3296,6 +3296,73 @@ free_blocks:
+@@ -3289,6 +3289,94 @@ free_blocks:
  }
  #endif
  
@@ -50,19 +50,40 @@ index a01247e..39e47a5 100644
 +{
 +	struct ext4_allocation_request ar;
 +	ext4_fsblk_t goal;
-+	int err = 0;
++	struct ext4_extent_header *eh;
++	struct ext4_extent *ex;
++	int err = 0, depth;
 +
-+	if (map->m_lblk == 0)
-+		return 0;
-+ 	if (path)
-+		ext4_ext_drop_refs(path);
-+
-+	path = ext4_ext_find_extent(inode, map->m_lblk -1, path);
-+	if (IS_ERR(path)) {
-+		err = PTR_ERR(path);
-+		path = NULL;
-+		goto out;
++	if (path == NULL) {
++		path = ext4_ext_find_extent(inode, map->m_lblk, path);
++		if (IS_ERR(path)) {
++			err = PTR_ERR(path);
++			path = NULL;
++			goto out;
++		}
 +	}
++
++	depth = ext_depth(inode);
++	eh = path[depth].p_hdr;
++	ex = path[depth].p_ext;
++	if (!ex)
++		return 0;
++
++	if (EXT_FIRST_EXTENT(eh) == ex) {
++		ext4_lblk_t ee_block;
++		ee_block = le32_to_cpu(ex->ee_block);
++		if (ee_block == 0)
++			return;
++		ext4_ext_drop_refs(path);
++		path = ext4_ext_find_extent(inode, ee_block - 1, path);
++		if (IS_ERR(path)) {
++			err = PTR_ERR(path);
++			path = NULL;
++			goto out;
++		}
++	} else
++		path[depth].p_ext -= 1;
++	
 +
 +	goal = ext4_ext_find_goal(inode, path, map->m_lblk);
 +	if ((map->m_flags & EXT4_MAP_MAPPED) && (goal == map->m_pblk))
@@ -106,7 +127,7 @@ index a01247e..39e47a5 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3660,7 +3727,14 @@ out:
+@@ -3653,7 +3741,14 @@ out:
  	map->m_flags |= EXT4_MAP_MAPPED;
  	map->m_pblk = newblock;
  	map->m_len = allocated;
