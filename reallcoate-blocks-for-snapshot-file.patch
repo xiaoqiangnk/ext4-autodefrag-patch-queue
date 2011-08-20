@@ -5,7 +5,7 @@ blocks for snapshot files and frees original blocks.
 
 Signed-off-by: Yongqiang Yang <xiaoqiangnk@gmail.com>
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index 6527cd7..01ca855 100644
+index 05e1c25..f57b5ac 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
 @@ -14,6 +14,7 @@
@@ -16,45 +16,35 @@ index 6527cd7..01ca855 100644
  #include "auto_defrag.h"
  
  #ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-@@ -36,6 +37,37 @@
+@@ -36,6 +37,27 @@
  
  
  /*
 + * ext4_remap_blocks() reallocates blocks for snapshot files. 
 + */
-+static void ext4_remap_blocks(struct inode *inode, ext4_lblk_t lblk,
-+			     ext4_fsblk_t count)
++int ext4_remap_blocks(handle_t *handle, struct inode *inode,
++		      struct ext4_map_blocks *map)
 +{
-+	struct ext4_map_blocks map;
-+	handle_t *handle;
-+	int needed_blocks, ret;
++	int ret;
 +
-+	needed_blocks = ext4_writepage_trans_blocks(inode) + 1;
++	BUG_ON(!map->m_len && !ext4_snapshot_file(inode));
++	ret = ext4_map_blocks(handle, inode, map,
++			      EXT4_GET_BLOCKS_CREATE |
++			      EXT4_GET_BLOCKS_REMAP);
++	if (ret > 0)
++		ext4_free_blocks(handle, inode, NULL,
++			 	 SNAPSHOT_BLOCK(map->m_lblk), ret, 0);
++	else
++		ret = ext4_map_blocks(handle, inode, map, 0);
 +
-+	handle = ext4_journal_start(inode, needed_blocks);
-+	if (IS_ERR(handle))
-+		return;
-+
-+	while(count > 0) {
-+		map.m_lblk = lblk;
-+		map.m_len  = count;
-+		map.m_flags = EXT4_MAP_REMAP;
-+		ret = ext4_map_blocks(handle, inode, &map,
-+				      EXT4_GET_BLOCKS_CREATE);
-+		if (ret <= 0)
-+			break;
-+		ext4_free_blocks(handle, inode, NULL, lblk, ret, 0);
-+		count -= ret;
-+		lblk += ret;
-+	}
-+	ext4_journal_stop(handle);
++	return ret;
 +}
 +
 +/*
   * ext4_map_page_buffers() map buffers attached to @page with blocks stating at
   * @pblk
   */
-@@ -74,7 +106,7 @@ static void set_page_buffers_dirty(struct page *page) {
+@@ -71,7 +93,7 @@ static void set_page_buffers_dirty_and_remap(struct page *page) {
  	struct buffer_head *head;
  
  	BUG_ON(!page->mapping || !PageUptodate(page) || !page_has_buffers(page));
@@ -63,3 +53,16 @@ index 6527cd7..01ca855 100644
  	bh = page_buffers(page);
  	head = bh;
  	do {
+diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
+index 67b2a12..d822e7f 100644
+--- a/fs/ext4/auto_defrag.h
++++ b/fs/ext4/auto_defrag.h
+@@ -36,4 +36,8 @@ static inline int ext4_should_auto_defrag(struct inode *inode)
+ extern int ext4_auto_defrag_async_read_blocks(struct inode *inode,
+ 					      ext4_fsblk_t blk,
+ 					      ext4_fsblk_t len);
++
++extern int ext4_remap_blocks(handle_t *handle, struct inode *inode,
++			     struct ext4_map_blocks *map);
++
+ #endif

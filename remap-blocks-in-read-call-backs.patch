@@ -1,12 +1,16 @@
-diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index 01ca855..1753627 100644
---- a/fs/ext4/auto_defrag.c
-+++ b/fs/ext4/auto_defrag.c
-@@ -133,6 +133,7 @@ static void ext4_read_and_dirty_end_io(struct bio *bio, int err) {
- 		if (uptodate) {
- 			SetPageUptodate(page);
- 			set_page_buffers_dirty(page);
-+			ext4_remap_blocks(page->mapping->host, page->index, 1);
- 		} else {
- 			ClearPageUptodate(page);
- 			SetPageError(page);
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index af5112e..113d705 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -2859,6 +2859,11 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+ 				EXT4_GET_BLOCKS_DELALLOC_RESERVE;
+ #endif
+ 
++#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (ext4_snapshot_file(mpd->inode) && (mpd->b_state & (1 << BH_Remap)))
++		blks = ext4_remap_blocks(handle, mpd->inode, &map);
++	else
++#endif
+ 	blks = ext4_map_blocks(handle, mpd->inode, &map, get_blocks_flags);
+ 	if (blks < 0) {
+ 		struct super_block *sb = mpd->inode->i_sb;

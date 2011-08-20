@@ -142,7 +142,7 @@ index 9ba5a38..17408433 100644
  /*
   * Add new method to test wether block and inode bitmaps are properly
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index 8ab41ea..46ed826 100644
+index 8ab41ea..2055ee6 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
 @@ -46,6 +46,7 @@
@@ -153,7 +153,7 @@ index 8ab41ea..46ed826 100644
  
  static int ext4_ext_truncate_extend_restart(handle_t *handle,
  					    struct inode *inode,
-@@ -3212,6 +3213,82 @@ out:
+@@ -3212,6 +3213,81 @@ out:
  	return err;
  }
  #endif
@@ -178,13 +178,12 @@ index 8ab41ea..46ed826 100644
 +	ee_newlen = ext4_ext_get_actual_len(newex);
 +
 +	/* determine the nr of blocks which can be replaced */
-+	merge_len = min(ee_newlen, ee_len);
++	merge_len = ee_newlen;
 +
 +	BUG_ON(merge_len <= 0 || ee_newlen > ee_len ||
 +	       newex->ee_block != ex->ee_block);
 +
 +	if (merge_len != ee_len) {
-+		oldblock = ext4_ext_pblock(ex);
 +		err = ext4_split_extent(handle, inode, path, map, 0,
 +					EXT4_GET_BLOCKS_PRE_IO);
 +		if (err < 0)
@@ -208,22 +207,22 @@ index 8ab41ea..46ed826 100644
 +	if (err)
 +		goto free_blocks;
 +
-+	if (!err) {
-+		/* splice new blocks to the inode*/
-+		ext4_ext_store_pblock(ex, ext4_ext_pblock(newex));
++	oldblock = ext4_ext_pblock(ex);
++	/* splice new blocks to the inode*/
++	ext4_ext_store_pblock(ex, ext4_ext_pblock(newex));
++	ext4_ext_try_to_merge(inode, path, ex);
++	err = ext4_ext_dirty(handle, inode, path + depth);
++	if (err) {
++		/* There is an error, retore it. */
++		ext4_ext_store_pblock(ex, oldblock);
 +		ext4_ext_try_to_merge(inode, path, ex);
-+		err = ext4_ext_dirty(handle, inode, path + depth);
-+		if (err)
-+			goto out;
++		goto free_blocks;
 +	}
 +
-+	if (oldblock)
-+		ext4_free_blocks(handle, inode, NULL, oldblock,
++	ext4_free_blocks(handle, inode, NULL, oldblock,
 +				 merge_len, EXT4_FREE_BLOCKS_FORGET);
-+
-+	ext4_std_error(inode->i_sb, err);
 +out:
-+	return err;
++	return 0;
 +
 +free_blocks:
 +	ext4_discard_preallocations(inode);
@@ -236,18 +235,23 @@ index 8ab41ea..46ed826 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3397,6 +3474,10 @@ found:
+@@ -3397,6 +3473,15 @@ found:
  		ex = path[depth].p_ext;
  	}
  #endif
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
++	if (newblock && (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG) &&
++	    (le32_to_cpu(ex->ee_block) != map->m_lblk))
++		/* Auto-defrag should not happen in the mid of an extent. */
++		goto out;
++
 +	if (newblock && (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
 +		oldblock = newblock;
 +#endif
  	/*
  	 * Okay, we need to do block allocation.
  	 */
-@@ -3454,7 +3535,14 @@ found:
+@@ -3454,7 +3539,14 @@ found:
  	ar.logical = map->m_lblk;
  	ar.len = allocated;
  	if (S_ISREG(inode->i_mode))
@@ -262,7 +266,7 @@ index 8ab41ea..46ed826 100644
  	else
  		/* disable in-core preallocation for non-regular files */
  		ar.flags = 0;
-@@ -3496,9 +3584,20 @@ found:
+@@ -3496,9 +3588,20 @@ found:
  #ifdef CONFIG_EXT4_FS_SNAPSHOT_HOOKS_EXTENT
  	if (oldblock) {
  		map->m_len = ar.len;
@@ -272,7 +276,7 @@ index 8ab41ea..46ed826 100644
 +		if (flags & EXT4_GET_BLOCKS_MOVE_ON_WRITE)
 +			err = ext4_ext_move_to_snapshot(handle, inode, map,
 +				path, oldblock, newblock);
-+		else
++		if (!err && (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
 +			err = ext4_ext_try_to_defrag(handle, inode, path, map,
 +						     ex, &newex);
 +#else

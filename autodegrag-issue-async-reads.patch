@@ -2,6 +2,66 @@ ext4: issue async reads on snapshot files
 
 If a file is rewritten and goal blocks is taken by snapshot files,
 then async reads on the blocks of the snapshot files are issued.
+diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
+index 37a88e4..05e1c25 100644
+--- a/fs/ext4/auto_defrag.c
++++ b/fs/ext4/auto_defrag.c
+@@ -54,10 +54,7 @@ static void ext4_map_page_buffers(struct page *page, ext4_fsblk_t pblk)
+ 	bh = page_buffers(page);
+ 	head = bh;
+ 	do {
+-		if (unlikely(buffer_mapped(bh)))
+-			BUG_ON(bh->b_blocknr != pblk);
+-		else
+-			map_bh(bh, inode->i_sb, pblk);
++		map_bh(bh, inode->i_sb, pblk);
+ 		pblk++;
+ 		bh = bh->b_this_page;
+ 	} while (bh != head);
+@@ -69,7 +66,7 @@ static void ext4_map_page_buffers(struct page *page, ext4_fsblk_t pblk)
+  * set_page_buffers_dirty() sets mapped buffers of
+  * the @page dirty and uptodate.
+  */
+-static void set_page_buffers_dirty(struct page *page) {
++static void set_page_buffers_dirty_and_remap(struct page *page) {
+ 	struct buffer_head *bh;
+ 	struct buffer_head *head;
+ 
+@@ -80,6 +77,7 @@ static void set_page_buffers_dirty(struct page *page) {
+ 	do {
+ 		if (buffer_mapped(bh)) {
+ 			set_buffer_uptodate(bh);
++			set_buffer_remap(bh);
+ 			mark_buffer_dirty(bh);
+ 		}
+ 		bh = bh->b_this_page;
+@@ -100,7 +98,7 @@ static void ext4_read_and_dirty_end_io(struct bio *bio, int err) {
+ 		BUG_ON(bio_data_dir(bio) != READ);
+ 		if (uptodate) {
+ 			SetPageUptodate(page);
+-			set_page_buffers_dirty(page);
++			set_page_buffers_dirty_and_remap(page);
+ 		} else {
+ 			ClearPageUptodate(page);
+ 			SetPageError(page);
+@@ -321,7 +319,7 @@ confused:
+ 	if (!PageUptodate(page)) {
+ 		ext4_read_mapped_buffers_dirty(page);
+ 	} else {
+-		set_page_buffers_dirty(page);
++		set_page_buffers_dirty_and_remap(page);
+ 		unlock_page(page);
+ 	}
+ 	goto out;
+@@ -384,7 +382,7 @@ find_page:
+ 				continue;
+ 			}
+ 			ext4_map_page_buffers(page, pblk);
+-			set_page_buffers_dirty(page);
++			set_page_buffers_dirty_and_remap(page);
+ 			unlock_page(page);
+ 			continue;
+ 		}
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
 index 383838e..65398ea 100644
 --- a/fs/ext4/ext4.h
@@ -29,10 +89,10 @@ index 383838e..65398ea 100644
  #define EXT4_MAP_FLAGS		(EXT4_MAP_NEW | EXT4_MAP_MAPPED |\
  				 EXT4_MAP_UNWRITTEN | EXT4_MAP_BOUNDARY |\
 diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
-index 46ed826..ee7264f 100644
+index 2055ee6..9364399 100644
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
-@@ -3289,6 +3289,94 @@ free_blocks:
+@@ -3288,6 +3288,94 @@ free_blocks:
  }
  #endif
  
@@ -49,7 +109,7 @@ index 46ed826..ee7264f 100644
 +			    struct ext4_ext_path *path)
 +{
 +	struct ext4_allocation_request ar;
-+	ext4_fsblk_t goal;
++	ext4_fsblk_t goal, blk;
 +	struct ext4_extent_header *eh;
 +	struct ext4_extent *ex;
 +	int err = 0, depth;
@@ -107,10 +167,10 @@ index 46ed826..ee7264f 100644
 +	 * TODO we can not use preallocations here
 +	 */
 +	ar.flags = EXT4_MB_HINT_DATA | EXT4_MB_HINT_GOAL_ONLY |
-+		   EXT4_MB_HINT_PREALLOC;
++		   EXT4_MB_HINT_PREALLOC | EXT4_MB_HINT_TRY_GOAL;
 +
-+	goal = ext4_mb_new_blocks(NULL, &ar, &err);
-+	if (goal > 0) {
++	blk = ext4_mb_new_blocks(NULL, &ar, &err);
++	if (blk > 0) {
 +		map->m_flags |= EXT4_MAP_AUTO_DEFRAG;
 +		goto out;
 +	}
@@ -127,13 +187,14 @@ index 46ed826..ee7264f 100644
  /*
   * Block allocation/map/preallocation routine for extents based files
   *
-@@ -3653,7 +3741,14 @@ out:
+@@ -3657,7 +3745,15 @@ out:
  	map->m_flags |= EXT4_MAP_MAPPED;
  	map->m_pblk = newblock;
  	map->m_len = allocated;
 +
 +#ifdef CONFIG_EXT4_FS_AUTO_DEFRAG
-+	if (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG)
++	if (!(flags & EXT4_GET_BLOCKS_CREATE) &&
++	    (flags & EXT4_GET_BLOCKS_AUTO_DEFRAG))
 +		ext4_auto_defrag_begin(inode, map, path);
 +#endif
 +

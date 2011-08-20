@@ -2,10 +2,10 @@ ext4: add functions which read blocks of snapshot files asynchronously
 
 This patch adds functions which read specified blocks of snapshot files.
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index f4fb90c..37a88e4 100644
+index f4fb90c..068b2c3 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
-@@ -15,6 +15,446 @@
+@@ -15,6 +15,449 @@
  #include "ext4.h"
  #include "ext4_extents.h"
  #include "auto_defrag.h"
@@ -417,7 +417,7 @@ index f4fb90c..37a88e4 100644
 +				       ext4_fsblk_t len)
 +{
 +	struct list_head *l, *n;
-+	int err = 0;
++	int blks = 0;
 +	struct ext4_inode_info *ei;
 +	struct ext4_map_blocks map;
 +	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -431,6 +431,8 @@ index f4fb90c..37a88e4 100644
 +
 +		start = blk;
 +		while (start < end) {
++			int err;
++
 +			map.m_lblk = SNAPSHOT_IBLOCK(start);
 +			map.m_len  = end - start;
 +			map.m_flags = 0;
@@ -444,13 +446,14 @@ index f4fb90c..37a88e4 100644
 +							&map);
 +				if (err)
 +					return err;
++				blks += err;
 +				start = start + map.m_len;
 +			} else
 +				start++;
 +		}
 +	}
 +
-+	return err;
++	return blks;
 +}
  #endif
 diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h

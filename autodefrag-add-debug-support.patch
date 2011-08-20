@@ -2,7 +2,7 @@ ext4: adds debug support for autodefrag
 
 This patch adds debug support for autodefrag.
 diff --git a/fs/ext4/auto_defrag.c b/fs/ext4/auto_defrag.c
-index 1753627..56a3613 100644
+index da20e76..ba77cde 100644
 --- a/fs/ext4/auto_defrag.c
 +++ b/fs/ext4/auto_defrag.c
 @@ -12,6 +12,7 @@
@@ -25,7 +25,7 @@ index 1753627..56a3613 100644
  
  /*
   * ext4_remap_blocks() reallocates blocks for snapshot files. 
-@@ -491,3 +497,31 @@ int ext4_auto_defrag_async_read_blocks(struct inode *inode,
+@@ -478,3 +484,31 @@ int ext4_auto_defrag_async_read_blocks(struct inode *inode,
  	return err;
  }
  #endif
@@ -58,13 +58,13 @@ index 1753627..56a3613 100644
 +#endif
 +
 diff --git a/fs/ext4/auto_defrag.h b/fs/ext4/auto_defrag.h
-index 67b2a12..078e555 100644
+index d822e7f..d3c2101 100644
 --- a/fs/ext4/auto_defrag.h
 +++ b/fs/ext4/auto_defrag.h
-@@ -36,4 +36,25 @@ static inline int ext4_should_auto_defrag(struct inode *inode)
- extern int ext4_auto_defrag_async_read_blocks(struct inode *inode,
- 					      ext4_fsblk_t blk,
- 					      ext4_fsblk_t len);
+@@ -40,4 +40,25 @@ extern int ext4_auto_defrag_async_read_blocks(struct inode *inode,
+ extern int ext4_remap_blocks(handle_t *handle, struct inode *inode,
+ 			     struct ext4_map_blocks *map);
+ 
 +
 +extern u8 autodefrag_enable_debug;
 +
